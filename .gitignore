@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+
+# Локальная база данных бэкенда
+notes_db.sqlite3
+
+# Личное хранилище заметок (Vault пользователя)
+RNT_Vault/
+
+# Среда разработки и ОС
+.vscode/
+Thumbs.db
+ehthumbs.db
+Desktop.ini

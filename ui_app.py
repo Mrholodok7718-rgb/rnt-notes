@@ -2,12 +2,16 @@ import os
 import glob
 import threading
 import uuid
+import hashlib
 from datetime import datetime, timezone
 
 import customtkinter as ctk
 import requests
 from client_crypto import RNTClientCrypto
-from ai_engine import RNTAIEngine  # Интеграция нашего AI-ядра
+from ai_engine import RNTAIEngine
+
+# ПОДКЛЮЧАЕМ НАШ НОВЫЙ ФАЙЛ ГРАФА
+from graph_viewer import show_neural_graph
 
 # --- Конфигурация системы ---
 BASE_URL = "http://127.0.0.1:8000"
@@ -15,7 +19,7 @@ MASTER_PASSWORD = "StrictPassword2026!"
 USERNAME = "rnt_admin"
 VAULT_DIR = "RNT_Vault"
 
-# --- Визуальная архитектура (RNT Cyber-Minimalism) ---
+# --- Визуальная архитектура ---
 BG_COLOR = "#000000"
 PANEL_COLOR = "#070709"
 ACCENT_COLOR = "#00D4FF"
@@ -36,9 +40,8 @@ class RNTNotesApp(ctk.CTk):
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        # Инициализация ядра
         self.crypto = RNTClientCrypto(master_password=MASTER_PASSWORD)
-        self.ai = RNTAIEngine(vault_path=VAULT_DIR)  # Запуск локальной нейросети
+        self.ai = RNTAIEngine(vault_path=VAULT_DIR)
         self.token = None
         self.current_file_path = None
         
@@ -47,11 +50,13 @@ class RNTNotesApp(ctk.CTk):
         self._build_sidebar()
         self._build_editor()
 
-        # Загрузка локальных файлов (Obsidian-style)
         self._load_local_vault()
         
-        # В фоне открываем E2E сессию с сервером
         threading.Thread(target=self._initialize_e2e_session, daemon=True).start()
+
+        # Бинд для SpaceX терминала
+        self.bind("<Control-k>", self._toggle_terminal)
+        self.terminal_frame = None
 
     def _ensure_vault_exists(self):
         if not os.path.exists(VAULT_DIR):
@@ -60,7 +65,9 @@ class RNTNotesApp(ctk.CTk):
     def _build_sidebar(self):
         self.sidebar = ctk.CTkFrame(self, fg_color=PANEL_COLOR, corner_radius=0, width=280)
         self.sidebar.grid(row=0, column=0, sticky="nsew")
-        self.sidebar.grid_rowconfigure(3, weight=1) # Изменили weight на 3 строку для списка
+        
+        # Сдвигаем список заметок на 4 строку, чтобы освободить место для кнопки
+        self.sidebar.grid_rowconfigure(4, weight=1)
 
         self.logo_label = ctk.CTkLabel(
             self.sidebar, text="RNT NOTES", 
@@ -76,11 +83,21 @@ class RNTNotesApp(ctk.CTk):
             hover_color="#00A3CC", corner_radius=6, height=36,
             command=self.create_new_note
         )
-        self.add_btn.grid(row=1, column=0, padx=20, pady=10, sticky="ew")
+        self.add_btn.grid(row=1, column=0, padx=20, pady=(10, 5), sticky="ew")
 
-        # --- Блок AI Поиска ---
+        # --- НАША НОВАЯ КНОПКА ГРАФА ---
+        self.graph_btn = ctk.CTkButton(
+            self.sidebar, text="🕸️ Neural Graph", 
+            fg_color="transparent", border_width=1, border_color=ACCENT_COLOR,
+            text_color=ACCENT_COLOR, hover_color="#05151D",
+            font=ctk.CTkFont(weight="bold", size=13),
+            corner_radius=6, height=32,
+            command=lambda: threading.Thread(target=show_neural_graph, daemon=True).start()
+        )
+        self.graph_btn.grid(row=2, column=0, padx=20, pady=(0, 10), sticky="ew")
+
         self.search_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        self.search_frame.grid(row=2, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.search_frame.grid(row=3, column=0, padx=20, pady=(0, 10), sticky="ew")
         self.search_frame.grid_columnconfigure(0, weight=1)
 
         self.search_entry = ctk.CTkEntry(
@@ -88,13 +105,10 @@ class RNTNotesApp(ctk.CTk):
             font=ctk.CTkFont(size=12), border_color=MUTED_TEXT, text_color=TEXT_COLOR
         )
         self.search_entry.grid(row=0, column=0, sticky="ew")
-        
-        # Запуск поиска по нажатию Enter
-        self.search_entry.bind("<Return>", lambda e: threading.Thread(target=self._perform_ai_search, daemon=True).start())
+        self.search_entry.bind("<Return>", self._start_ai_search)
 
-        # Список заметок (теперь на 3 строке)
         self.notes_list = ctk.CTkScrollableFrame(self.sidebar, fg_color="transparent")
-        self.notes_list.grid(row=3, column=0, sticky="nsew", padx=10, pady=5)
+        self.notes_list.grid(row=4, column=0, sticky="nsew", padx=10, pady=5)
 
     def _build_editor(self):
         self.editor_frame = ctk.CTkFrame(self, fg_color=BG_COLOR, corner_radius=0)
@@ -112,7 +126,6 @@ class RNTNotesApp(ctk.CTk):
             fg_color="transparent", border_width=0, text_color=TEXT_COLOR
         )
         self.note_title.grid(row=0, column=0, sticky="ew")
-
         self.note_title.bind("<FocusOut>", lambda e: self.save_local())
 
         self.note_editor = ctk.CTkTextbox(
@@ -137,26 +150,25 @@ class RNTNotesApp(ctk.CTk):
             self.action_frame, text="Зашифровать и Отправить", 
             fg_color="transparent", border_width=1.5, border_color=ACCENT_COLOR,
             text_color=ACCENT_COLOR, hover_color="#05151D", corner_radius=6,
-            command=lambda: threading.Thread(target=self.trigger_crypto_sync, daemon=True).start()
+            command=self.trigger_crypto_sync
         )
         self.sync_btn.grid(row=0, column=1, sticky="e")
 
-    # --- AI Поиск ---
+    # --- AI Поиск с безопасной многопоточностью ---
 
-    def _perform_ai_search(self):
+    def _start_ai_search(self, event=None):
         query = self.search_entry.get().strip()
         if not query:
-            self._load_local_vault() # Сброс поиска
+            self._load_local_vault()
             return
+        self.status_label.configure(text="● AI обрабатывает запрос...", text_color=ACCENT_COLOR)
+        threading.Thread(target=self._async_perform_ai_search, args=(query,), daemon=True).start()
 
-        self.after(0, lambda: self.status_label.configure(text="● AI обрабатывает запрос...", text_color=ACCENT_COLOR))
-        
-        # Ленивая индексация
+    def _async_perform_ai_search(self, query):
         if not self.ai.embeddings_db:
             self.ai.build_index()
 
         results = self.ai.search(query)
-        
         self.after(0, lambda: self._render_search_results(results))
         self.after(0, lambda: self.status_label.configure(text="● AI поиск завершен", text_color=MUTED_TEXT))
 
@@ -171,7 +183,6 @@ class RNTNotesApp(ctk.CTk):
 
         for file_path, score in results:
             if score < 0.3: continue 
-            
             filename = os.path.basename(file_path).replace(".md", "")
             btn = ctk.CTkButton(
                 self.notes_list, text=f"{filename} ({score:.2f})", anchor="w",
@@ -181,7 +192,7 @@ class RNTNotesApp(ctk.CTk):
             )
             btn.pack(fill="x", pady=2)
 
-    # --- Локальная логика (Obsidian Core) ---
+    # --- Локальная логика (Obsidian Core + Smart Edges) ---
 
     def _load_local_vault(self):
         for widget in self.notes_list.winfo_children():
@@ -204,7 +215,7 @@ class RNTNotesApp(ctk.CTk):
             btn.pack(fill="x", pady=2)
 
     def _load_file_to_editor(self, file_path):
-        self.save_local()
+        self.save_local(trigger_ai=False)
         self.current_file_path = file_path
         
         title = os.path.basename(file_path).replace(".md", "")
@@ -221,7 +232,7 @@ class RNTNotesApp(ctk.CTk):
         self._load_local_vault() 
 
     def create_new_note(self):
-        self.save_local()
+        self.save_local(trigger_ai=False)
         self.current_file_path = None
         self.note_title.delete(0, 'end')
         self.note_editor.delete("1.0", 'end')
@@ -230,7 +241,7 @@ class RNTNotesApp(ctk.CTk):
         self.status_label.configure(text="● Ожидание ввода...", text_color=MUTED_TEXT)
         self._load_local_vault()
 
-    def save_local(self):
+    def save_local(self, trigger_ai=True):
         title = self.note_title.get().strip()
         content = self.note_editor.get("1.0", 'end-1c')
         
@@ -250,9 +261,35 @@ class RNTNotesApp(ctk.CTk):
             f.write(content)
             
         self.current_file_path = new_file_path
+        
+        if trigger_ai and content.strip():
+            threading.Thread(target=self._generate_smart_edges, args=(new_file_path, content), daemon=True).start()
+
         self._load_local_vault()
 
-    # --- Облачная логика E2E (RNT Features) ---
+    def _generate_smart_edges(self, file_path, content):
+        if not self.ai.embeddings_db:
+            self.ai.build_index()
+            
+        related = self.ai.find_related_notes(content, file_path, threshold=0.85)
+        
+        if related:
+            new_links = [f"[[{name}]]" for name in related if f"[[{name}]]" not in content]
+            
+            if new_links:
+                links_str = ", ".join(new_links)
+                append_text = f"\n\n> 🔗 AI Связи: {links_str}\n"
+                
+                with open(file_path, "a", encoding="utf-8") as f:
+                    f.write(append_text)
+                
+                if self.current_file_path == file_path:
+                    self.after(0, lambda: self.note_editor.insert("end", append_text))
+                    self.after(0, lambda: self.status_label.configure(text="● AI обнаружил и добавил связи", text_color="#00FF9D"))
+                    
+                self.ai.build_index()
+
+    # --- Облачная логика E2E ---
 
     def _initialize_e2e_session(self):
         auth_data = {"username": USERNAME, "password": MASTER_PASSWORD, "public_key": "dummy"}
@@ -268,23 +305,23 @@ class RNTNotesApp(ctk.CTk):
             pass 
 
     def trigger_crypto_sync(self):
-        self.save_local()
+        self.save_local(trigger_ai=False)
         
         if not self.token:
-            self.after(0, lambda: self.status_label.configure(text="[!] Ошибка сети. Файл сохранен только локально.", text_color="#FF4444"))
+            self.status_label.configure(text="[!] Ошибка сети. Файл сохранен только локально.", text_color="#FF4444")
             return
 
         title = self.note_title.get()
         content = self.note_editor.get("1.0", 'end-1c')
+        self.status_label.configure(text="● Шифрование (AES-256-GCM)...", text_color=ACCENT_COLOR)
         
-        self.after(0, lambda: self.status_label.configure(text="● Шифрование (AES-256-GCM)...", text_color=ACCENT_COLOR))
+        threading.Thread(target=self._async_sync_worker, args=(title, content), daemon=True).start()
         
+    def _async_sync_worker(self, title, content):
         full_plaintext = f"{title}|||{content}"
         encrypted_payload, nonce = self.crypto.encrypt_note(full_plaintext)
         
-        import hashlib
         note_id = str(uuid.UUID(hashlib.md5(title.encode()).hexdigest()))
-        
         sync_payload = {
             "last_sync_time": datetime.now(timezone.utc).isoformat(),
             "notes": [{
@@ -305,6 +342,58 @@ class RNTNotesApp(ctk.CTk):
         except Exception:
             self.after(0, lambda: self.status_label.configure(text="[!] Сервер недоступен", text_color="#FF4444"))
 
+    # --- RNT Terminal (SpaceX Style) ---
+
+    def _toggle_terminal(self, event=None):
+        if self.terminal_frame and self.terminal_frame.winfo_ismapped():
+            self.terminal_frame.place_forget()
+        else:
+            self._show_terminal()
+
+    def _show_terminal(self):
+        if not self.terminal_frame:
+            self.terminal_frame = ctk.CTkFrame(
+                self, fg_color="#0D0D12", corner_radius=12, 
+                border_width=2, border_color=ACCENT_COLOR
+            )
+            
+            self.term_entry = ctk.CTkEntry(
+                self.terminal_frame, placeholder_text="Ask RNT Co-Pilot (e.g. 'Сделай саммари архитектуры')...",
+                font=ctk.CTkFont(family="Consolas", size=16),
+                fg_color="transparent", border_width=0, text_color=ACCENT_COLOR
+            )
+            self.term_entry.pack(fill="x", padx=15, pady=10)
+            self.term_entry.bind("<Return>", self._process_terminal_command)
+            
+            self.term_output = ctk.CTkTextbox(
+                self.terminal_frame, font=ctk.CTkFont(family="Consolas", size=14),
+                fg_color="transparent", text_color=TEXT_COLOR, wrap="word", height=200
+            )
+            self.term_output.pack(fill="both", expand=True, padx=15, pady=(0, 15))
+
+        self.terminal_frame.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.6)
+        self.term_entry.focus()
+        
+    def _process_terminal_command(self, event=None):
+        query = self.term_entry.get().strip()
+        if not query:
+            return
+            
+        self.term_entry.delete(0, 'end')
+        self.term_output.delete("1.0", 'end')
+        self.term_output.insert("1.0", f"> {query}\n[SYSTEM] Сканирование графа и генерация ответа...\n")
+        self.update_idletasks()
+        
+        threading.Thread(target=self._run_rag_worker, args=(query,), daemon=True).start()
+
+    def _run_rag_worker(self, query):
+        if not self.ai.embeddings_db:
+            self.ai.build_index()
+            
+        results = self.ai.search(query, top_k=3)
+        answer = self.ai.ask_copilot(query, results)
+        
+        self.after(0, lambda: self.term_output.insert("end", f"\n[RNT CO-PILOT]:\n{answer}\n"))
 
 if __name__ == "__main__":
     app = RNTNotesApp()

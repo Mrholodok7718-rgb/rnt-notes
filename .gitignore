@@ -15,3 +15,21 @@ RNT_Vault/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+# Сборка PyInstaller
+build/
+dist/
+*.spec
+*.exe
+
+# Виртуальное окружение
+.venv/
+env/
+
+# Кэш Python и системные файлы
+__pycache__/
+*.pyc
+.DS_Store
+
+# База данных и локальное хранилище (чтобы не слить свои заметки)
+*.sqlite3
+RNT_Vault/

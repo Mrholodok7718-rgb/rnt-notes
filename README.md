@@ -1,38 +1,48 @@
-# ⚡ RNT Notes Core
+# 🌌 RNT Notes | AI-Powered Zero-Knowledge Second Brain
 
-> **Local-First Zero-Knowledge E2EE Note-Taking System with Local AI Semantic Search.**
+**RNT Notes** — это ультимативное локальное десктопное приложение для ведения заметок, построенное на принципах абсолютной приватности (Zero-Knowledge) и самоорганизации данных с помощью искусственного интеллекта. 
 
-![Python](https://img.shields.io/badge/Python-3.11%2B-blue?style=flat-square&logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-Async-005571?style=flat-square&logo=fastapi&logoColor=white)
-![Encryption](https://img.shields.io/badge/Encryption-AES--256--GCM-red?style=flat-square&logo=security&logoColor=white)
-![AI](https://img.shields.io/badge/AI-Ollama%20(Local)-orange?style=flat-square&logo=ollama&logoColor=white)
+Проект объединяет в себе E2E-шифрование, векторную RAG-генерацию и 3D-матрицу связей, предоставляя пользователю математически защищенное пространство для хранения и осмысления информации.
 
-## 🏛️ Архитектура системы
+## 🔥 Ключевые возможности
 
-**RNT Notes** спроектирован по принципу **Zero-Trust & Local-First**. 
-1. **Obsidian-style Vault:** Все заметки хранятся локально на диске в открытом формате `.md`. Приложение работает полностью в офлайне.
-2. **Client-Side E2E Encryption:** Перед синхронизацией с облаком данные шифруются прямо на клиентской машине с использованием алгоритма **AES-256-GCM** и производной ключа **PBKDF2** (600 000 итераций).
-3. **Blind Backend:** Сервер на базе **FastAPI + SQLAlchemy (Async)** является "слепым" транспортом. Он не имеет доступа к мастер-паролю и хранит исключительно зашифрованные блобы.
-4. **Local AI Engine:** Встроенный поиск использует локальную модель через **Ollama (`nomic-embed-text`)**, рассчитывая косинусное сходство векторов для семантического поиска по смыслу.
+* **Zero-Knowledge Архитектура:** Заметки шифруются на клиенте (E2E) перед отправкой на сервер. Бэкенд хранит только криптографический мусор. Доступ к чистым данным есть только у владельца ключа.
+* **Локальный AI Co-Pilot (RAG):** Встроенный ИИ-ассистент, который "читает" ваши заметки локально (через Ollama) и отвечает на вопросы строго по вашей персональной базе знаний.
+* **3D Нейронный Граф Связей:** Заметки автоматически линкуются друг с другом (Smart Edges) на основе их семантического смысла, формируя интерактивную 3D-матрицу.
+* **Standalone Desktop Client:** Строгий кибер-минималистичный UI с глубоким черным фоном, неоново-синими акцентами и эффектом глассморфизма в эстетике аэрокосмических интерфейсов.
 
----
+## 📥 Установка (Для пользователей)
 
-## 🛠️ Стек технологий
+Готовая скомпилированная программа доступна в разделе **Releases**.
+1. Перейдите в меню [Releases](../../releases) справа.
+2. Скачайте последнюю версию `RNT_Notes.exe`.
+3. Запустите файл (установка не требуется).
 
-* **Backend:** FastAPI, Uvicorn, SQLAlchemy (Async), Pydantic, Bcrypt, PyJWT.
-* **Client UI:** CustomTkinter (Cyber-Minimalism / Glassmorphic UI design).
-* **Cryptography:** Python `cryptography` library (AES-GCM, PBKDF2).
-* **AI / RAG:** Ollama (Local Embeddings).
+*Примечание: Для работы облачной синхронизации необходимо поднять локальный бэкенд (инструкция ниже).*
 
----
+## 🛠 Стек технологий
 
-## 🚀 Быстрый старт
+* **Бэкенд:** Python, FastAPI, SQLite + aiosqlite, Uvicorn, SQLAlchemy.
+* **Фронтенд (Клиент):** CustomTkinter, PyInstaller.
+* **Криптография:** `cryptography` (E2E AES-GCM), `passlib`, `python-jose`, `bcrypt`.
+* **AI Движок:** Local LLM via `ollama`, Vector Embeddings, `networkx`, `matplotlib`.
 
-### 1. Клонирование и установка зависимостей
+## 🚀 Инструкция для разработчиков
+
+### Поднятие ZK-Бэкенда
+Сервер необходим для E2E-авторизации и хранения зашифрованных векторов.
+
 ```bash
-git clone [https://github.com/](https://github.com/) твой_логин / rnt-notes.git
-cd rnt-notes
+# Клонирование репозитория
+git clone [https://github.com/YOUR_USERNAME/RNT_Notes.git](https://github.com/YOUR_USERNAME/RNT_Notes.git)
+cd RNT_Notes
+
+# Создание и активация окружения
 python -m venv .venv
-# Активация виртуального окружения (для Windows PowerShell):
-& ".\.venv\Scripts\Activate.ps1"
+.\.venv\Scripts\Activate.ps1
+
+# Установка зависимостей
 pip install -r requirements.txt
+
+# Запуск FastAPI сервера
+uvicorn main:app --reload
